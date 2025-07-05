@@ -8,7 +8,9 @@ function App() {
   const canvasRef = useRef(null);
   const [model, setModel] = useState(null);
   const [detecting, setDetecting] = useState(false);
-  const [alerts, setAlerts] = useState([]); // NEW: Alert state
+  const [alerts, setAlerts] = useState([]);
+  const [lastAlerts, setLastAlerts] = useState({}); // Track last alert times
+  const [facingMode, setFacingMode] = useState('environment'); // 'user' = front, 'environment' = back
 
   // Load model on component mount
   useEffect(() => {
@@ -25,23 +27,33 @@ function App() {
     loadModel();
   }, []);
 
-  // NEW: Alert function
+  // NEW: Alert function with cooldown
   const triggerAlert = (objectType) => {
-    const alertMessage = `⚠️ ${objectType.toUpperCase()} DETECTED`;
-    const newAlert = { id: Date.now(), message: alertMessage };
-    setAlerts(prev => [...prev, newAlert]);
+    const now = Date.now();
+    const lastAlertTime = lastAlerts[objectType] || 0;
+    const cooldownPeriod = 3000; // 3 seconds cooldown per object type
     
-    // Remove alert after 2 seconds
-    setTimeout(() => {
-      setAlerts(prev => prev.filter(alert => alert.id !== newAlert.id));
-    }, 2000);
-    
-    // Play alert sound (optional)
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance(`Alert: ${objectType} detected`);
-      utterance.rate = 1.5;
-      utterance.volume = 0.8;
-      speechSynthesis.speak(utterance);
+    // Only trigger if enough time has passed since last alert of this type
+    if (now - lastAlertTime > cooldownPeriod) {
+      const alertMessage = `⚠️ ${objectType.toUpperCase()} DETECTED`;
+      const newAlert = { id: now, message: alertMessage };
+      setAlerts(prev => [...prev, newAlert]);
+      
+      // Update last alert time for this object type
+      setLastAlerts(prev => ({ ...prev, [objectType]: now }));
+      
+      // Remove alert after 2 seconds
+      setTimeout(() => {
+        setAlerts(prev => prev.filter(alert => alert.id !== newAlert.id));
+      }, 2000);
+      
+      // Play alert sound (optional)
+      if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(`Alert: ${objectType} detected`);
+        utterance.rate = 1.5;
+        utterance.volume = 0.8;
+        speechSynthesis.speak(utterance);
+      }
     }
   };
 
@@ -103,6 +115,11 @@ function App() {
     setDetecting(!detecting);
   };
 
+  // Toggle camera facing mode
+  const toggleCamera = () => {
+    setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+  };
+
   // Detection loop
   useEffect(() => {
     let interval;
@@ -113,8 +130,22 @@ function App() {
   }, [detecting, model]);
 
   return (
-    <div className="App" style={{ textAlign: 'center', padding: '20px' }}>
-      <h1>Navae - AI Driver Assistant Demo</h1>
+    <div className="App" style={{ 
+      textAlign: 'center', 
+      padding: '10px',
+      minHeight: '100vh',
+      backgroundColor: '#000',
+      color: '#fff'
+    }}>
+      <h1 style={{ 
+        fontSize: 'clamp(1.5rem, 4vw, 2.5rem)',
+        marginBottom: '20px',
+        background: 'linear-gradient(45deg, #00ff88, #0088ff)',
+        WebkitBackgroundClip: 'text',
+        WebkitTextFillColor: 'transparent'
+      }}>
+        Navae AI Driver Assistant
+      </h1>
       
       {/* NEW: Alert Display */}
       {alerts.map(alert => (
@@ -139,14 +170,26 @@ function App() {
         </div>
       ))}
       
-      <div style={{ position: 'relative', display: 'inline-block' }}>
+      <div style={{ 
+        position: 'relative', 
+        display: 'inline-block',
+        width: '100%',
+        maxWidth: '100vw',
+        borderRadius: '15px',
+        overflow: 'hidden',
+        boxShadow: '0 8px 32px rgba(0, 255, 136, 0.3)'
+      }}>
         <Webcam
           ref={webcamRef}
-          mirrored={false}
+          mirrored={facingMode === 'user'}
+          videoConstraints={{
+            facingMode: facingMode
+          }}
           style={{
             width: '100%',
-            maxWidth: '640px',
             height: 'auto',
+            maxHeight: '70vh',
+            objectFit: 'cover'
           }}
         />
         <canvas
@@ -162,29 +205,72 @@ function App() {
         />
       </div>
       
-      <div style={{ marginTop: '20px' }}>
+      <div style={{ 
+        marginTop: '20px',
+        display: 'flex',
+        gap: '10px',
+        justifyContent: 'center',
+        flexWrap: 'wrap'
+      }}>
         <button
           onClick={toggleDetection}
           disabled={!model}
           style={{
             padding: '15px 30px',
             fontSize: '18px',
-            backgroundColor: detecting ? '#ff4444' : '#44ff44',
-            color: 'white',
+            backgroundColor: detecting ? '#ff4444' : '#00ff88',
+            color: '#000',
             border: 'none',
-            borderRadius: '8px',
+            borderRadius: '25px',
             cursor: 'pointer',
             fontWeight: 'bold',
+            boxShadow: '0 4px 15px rgba(0, 255, 136, 0.3)',
+            transition: 'all 0.3s ease'
           }}
         >
-          {!model ? 'Loading Model...' : detecting ? 'Stop Detection' : 'Start Detection'}
+          {!model ? 'Loading AI...' : detecting ? '🛑 Stop Detection' : '🚀 Start Detection'}
+        </button>
+        
+        <button
+          onClick={toggleCamera}
+          style={{
+            padding: '15px 30px',
+            fontSize: '18px',
+            backgroundColor: '#0088ff',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '25px',
+            cursor: 'pointer',
+            fontWeight: 'bold',
+            boxShadow: '0 4px 15px rgba(0, 136, 255, 0.3)',
+            transition: 'all 0.3s ease'
+          }}
+        >
+          📱 {facingMode === 'user' ? 'Use Back Camera' : 'Use Front Camera'}
         </button>
       </div>
       
-      <div style={{ marginTop: '20px' }}>
-        <p>Status: {!model ? 'Loading AI model...' : detecting ? 'Detecting objects...' : 'Ready to detect'}</p>
-        <p style={{ fontSize: '14px', color: '#666' }}>
-          Detects: People, Cars, Trucks, Buses, Bicycles, Motorcycles
+      <div style={{ 
+        marginTop: '20px',
+        padding: '20px',
+        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        borderRadius: '15px',
+        backdropFilter: 'blur(10px)'
+      }}>
+        <p style={{ 
+          fontSize: '16px',
+          marginBottom: '10px',
+          color: detecting ? '#00ff88' : '#fff'
+        }}>
+          Status: {!model ? 'Loading AI model...' : detecting ? '🟢 Actively Monitoring' : '⚪ Ready to Monitor'}
+        </p>
+        <p style={{ 
+          fontSize: '14px', 
+          color: '#aaa',
+          lineHeight: '1.4'
+        }}>
+          🎯 Detecting: People, Cars, Trucks, Buses, Bicycles, Motorcycles<br/>
+          📱 Camera: {facingMode === 'user' ? 'Front' : 'Back'} | 🔄 Alerts cooldown: 3s
         </p>
       </div>
     </div>
